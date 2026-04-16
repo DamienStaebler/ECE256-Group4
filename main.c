@@ -96,17 +96,5 @@ main(void)
         for(ui32Loop = 0; ui32Loop < 200000; ui32Loop++)
         {
         }
-
-        //
-        // Turn off the LED.
-        //
-        GPIOPinWrite(GPIO_PORTF_BASE, GPIO_PIN_3, 0x0);
-
-        //
-        // Delay for a bit.
-        //
-        for(ui32Loop = 0; ui32Loop < 200000; ui32Loop++)
-        {
-        }
     }
 }
