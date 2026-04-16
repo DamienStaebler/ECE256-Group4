@@ -94,7 +94,7 @@ main(void)
         // Delay for a bit.
         //
         for(ui32Loop = 0; ui32Loop < 200000; ui32Loop++)
-        {
+        adfa
         }
     }
 }
