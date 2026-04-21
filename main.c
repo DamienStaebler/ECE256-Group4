@@ -31,6 +31,9 @@
 #define NVIC_ST_CURRENT_R (*((volatile uint32_t *)0xE000E018)) // Current value
 #define SYSCTL_RCC_R (*((volatile uint32_t *)0x400FE060))
 
+#define SYSCTL_PRGPIO_R (*((volatile uint32_t *)0x400FEA08))
+#define SYSCTL_PRPWM_R  (*((volatile uint32_t *)0x400FEA40))
+
 #define TABLE_SIZE 32
 #define MAX 15
 
@@ -118,7 +121,6 @@ int main(void) {
                     }
                 } else {
                     melody_idx = 0;
-                    currentState = IDLE;
                 }
                 break;
 
@@ -185,31 +187,36 @@ void Wait_ms(uint32_t ms) {
 }
 
 void PWM_Init(void) {
-    SYSCTL_RCGCGPIO_R |= 0x02; // Enable clock for Port B
-    SYSCTL_RCGCPWM_R |= 0x01; // Enable clock for PWM Module 0
-    SYSCTL_RCC_R |= 0x00100000; // Use PWM divider
-    SYSCTL_RCC_R &= ~0x000E0000;
+    SYSCTL_RCGCPWM_R |= 0x01;   // Enable PWM Module 0 clock
+    SYSCTL_RCGCGPIO_R |= 0x02;  // Enable Port B clock
     
-    // Configure PB6 as PWM output (alternate function 4 = M0PWM0)
-    GPIO_PORTB_AFSEL_R |= 0x40; // Enable alt function on PB6
-    GPIO_PORTB_PCTL_R = (GPIO_PORTB_PCTL_R & 0xF0FFFFFF) | 0x04000000; // AF4
-    GPIO_PORTB_DEN_R |= 0x40; // Enable digital I/O on PB6
+    // CRITICAL: Wait for peripherals to be ready
+    while((SYSCTL_PRPWM_R & 0x01) == 0);
+    while((SYSCTL_PRGPIO_R & 0x02) == 0);
+
+    SYSCTL_RCC_R |= 0x00100000;   // Use PWM divider
+    SYSCTL_RCC_R &= ~0x000E0000;  // PWM clock = SYSCLK / 2 (8 MHz)
     
-    // PWM generator 0: count down, 440 Hz, 50% duty
-    PWM0_0_CTL_R = 0; // Disable during setup
-    PWM0_0_GENA_R = 0x8C; // High at LOAD, low at CMPA
-    PWM0_0_LOAD_R = (SYSCLK / (2 * 20000)) - 1;
-    PWM0_0_CMPA_R = PWM0_0_LOAD_R; //
-    PWM0_0_CTL_R = 1; // Enable generator
-    PWM0_ENABLE_R |= 0x01; // Enable PWM output on PB6
+    GPIO_PORTB_AFSEL_R |= 0x40;   // PB6 alt function
+    GPIO_PORTB_PCTL_R = (GPIO_PORTB_PCTL_R & 0xF0FFFFFF) | 0x04000000; 
+    GPIO_PORTB_DEN_R |= 0x40; 
+    
+    PWM0_0_CTL_R = 0;             // Setup mode
+    PWM0_0_GENA_R = 0x8C;         
+    PWM0_0_LOAD_R = 400 - 1;      // ~20kHz carrier frequency
+    PWM0_0_CMPA_R = 200;          // Start at 50% duty
+    PWM0_0_CTL_R = 1;             // Enable generator
+    PWM0_ENABLE_R |= 0x01;        // Enable PWM0
 }
 
 void PortF_Init(void) {
-    SYSCTL_RCGCGPIO_R |= 0x20; // Enable Port F
-    GPIO_PORTF_DIR_R |= 0x0E;  // PF1,2,3 as Output
-    GPIO_PORTF_DIR_R &= ~0x10; // PF4 as Input
-    GPIO_PORTF_PUR_R |= 0x10;  // Pull-up on PF4
-    GPIO_PORTF_DEN_R |= 0x1E;  // Enable pins
+    SYSCTL_RCGCGPIO_R |= 0x20; 
+    while((SYSCTL_PRGPIO_R & 0x20) == 0); // Wait for Port F
+    
+    GPIO_PORTF_DIR_R |= 0x0E;  
+    GPIO_PORTF_DIR_R &= ~0x10; 
+    GPIO_PORTF_PUR_R |= 0x10;  
+    GPIO_PORTF_DEN_R |= 0x1E;  
 }
 
 void Set_LED(uint8_t color) {
@@ -220,17 +227,14 @@ void note(int note_val, int duration) {
     if (note_val == 0) {
         fixedSTEP = 0;
     } else {
+        // Calculate new frequency
         float freq = 440.0 * pow(2.0, (note_val - 49.0) / 12.0);
-        
         float floatStep = (freq * (float)TABLE_SIZE) / 8000.0;
-        
         fixedSTEP = (uint32_t)(floatStep * 65536.0);
     }
 
     Wait_ms(duration);
     
-    uint32_t tempStep = fixedSTEP;
     fixedSTEP = 0;
     Wait_ms(50); 
-    fixedSTEP = tempStep;
 }
