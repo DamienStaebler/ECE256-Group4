@@ -1,7 +1,7 @@
 #include <stdint.h>
 #include <math.h>
 
-#define SYSCLK_HZ 16000000 
+#define SYSCLK 16000000 // 16 MHz default clock
 
 // System control registers
 #define SYSCTL_RCGCGPIO_R (*((volatile uint32_t *)0x400FE608)) // GPIO clock
@@ -10,14 +10,13 @@
 // GPIO Port B registers (base: 0x40005000)
 #define GPIO_PORTB_AFSEL_R (*((volatile uint32_t *)0x40005420)) // Alt function
 #define GPIO_PORTB_DEN_R (*((volatile uint32_t *)0x4000551C)) // Digital enable
-#define GPIO_PORTB_AMSEL_R (*((volatile uint32_t *)0x40005528)) // Analog mode
 #define GPIO_PORTB_PCTL_R (*((volatile uint32_t *)0x4000552C)) // Port control
 
-// GPIO Port F registers (base: 0x40025000)
-#define GPIO_PORTF_DATA_R (*((volatile uint32_t *)0x400253FC)) // Data
-#define GPIO_PORTF_DIR_R (*((volatile uint32_t *)0x40025400)) // Direction
-#define GPIO_PORTF_AFSEL_R (*((volatile uint32_t *)0x40025420)) // Alt function
-#define GPIO_PORTF_DEN_R (*((volatile uint32_t *)0x4002551C)) // Digital enable
+// Port F pins (SW1: PF4, LED: PF1=Red, PF2=Blue, PF3=Green)
+#define GPIO_PORTF_DATA_R (*((volatile uint32_t *)0x400253FC))
+#define GPIO_PORTF_DIR_R   (*((volatile uint32_t *)0x40025400))
+#define GPIO_PORTF_PUR_R   (*((volatile uint32_t *)0x40025510))
+#define GPIO_PORTF_DEN_R   (*((volatile uint32_t *)0x4002551C))
 
 // PWM Module 0, Generator 0 registers (base: 0x40028000)
 #define PWM0_ENABLE_R (*((volatile uint32_t *)0x40028008)) // PWM output enable
@@ -25,8 +24,6 @@
 #define PWM0_0_LOAD_R (*((volatile uint32_t *)0x40028050)) // Load (period)
 #define PWM0_0_CMPA_R (*((volatile uint32_t *)0x40028058)) // Compare A (duty)
 #define PWM0_0_GENA_R (*((volatile uint32_t *)0x40028060)) // Generator A action
-#define SYSCLK 16000000 // 16 MHz default clock (no PLL)
-#define TONE_HZ 440 // Frequency in Hz
 
 // SysTick registers (Cortex-M core)
 #define NVIC_ST_CTRL_R (*((volatile uint32_t *)0xE000E010)) // Control/Status
@@ -34,10 +31,23 @@
 #define NVIC_ST_CURRENT_R (*((volatile uint32_t *)0xE000E018)) // Current value
 #define SYSCTL_RCC_R (*((volatile uint32_t *)0x400FE060))
 
-#define COUNTFLAG (1U << 16)
-
 #define TABLE_SIZE 32
 #define MAX 15
+
+#define q 400 // Quarter
+#define h 800 // Half
+
+// Timers
+void SysTick_Init(void);
+void SysTick_Handler(void);
+void Wait_ms(uint32_t ms);
+
+// Init
+void PWM_Init(void);
+void PortF_Init(void);
+
+void Set_LED(uint8_t color);
+void note(int note_val, int duration);
 
 volatile float tableIndex = 0;
 volatile float STEP = 0;
@@ -45,12 +55,84 @@ volatile uint32_t ms_ticks = 0;
 volatile uint32_t fixedTableIndex = 0; 
 volatile uint32_t fixedSTEP = 0;
 
-
 uint8_t sineTable[TABLE_SIZE] = {
     7, 8, 10, 11, 12, 13, 14, 14, 15,
     14, 14, 13, 12, 11, 10, 8, 7, 6,
     4, 3, 2, 1, 0, 0, 0, 0, 0, 1, 2, 3, 4, 6
 };
+
+typedef enum {
+    REST = 0,
+    C = 40, Cs, D = 42, Ds, E = 44, F = 45, Fs, G = 47, Gs, A = 49, As, B = 51
+} Pitch_t;
+
+typedef struct {
+    Pitch_t pitch;
+    uint16_t duration;
+} Note_t;
+
+Note_t twinklestar[] = {
+    {C, q}, {C, q}, {G, q}, {G, q}, {A, q}, {A, q}, {G, h}, // Phrase 1
+    {F, q}, {F, q}, {E, q}, {E, q}, {D, q}, {D, q}, {C, h}, // Phrase 2
+    {G, q}, {G, q}, {F, q}, {F, q}, {E, q}, {E, q}, {D, h}  // Phrase 3
+};
+
+typedef enum { IDLE, PLAYING, PAUSED } State_t;
+volatile State_t currentState = IDLE;
+
+int main(void) {
+    *((volatile uint32_t *)0xE000ED88) |= ((3UL << 20) | (3UL << 22)); 
+    
+    SysTick_Init();
+    PWM_Init();
+    PortF_Init();
+    
+    int melody_idx = 0;
+    int total_notes = sizeof(twinklestar) / sizeof(Note_t);
+    int phrase;
+
+    // FSM
+    while (1) {
+        int button_pressed = ((GPIO_PORTF_DATA_R & 0x10) == 0);
+
+        switch (currentState) {
+            case IDLE:
+                Set_LED(0x02); // Red
+                if (button_pressed) {
+                    Wait_ms(200); 
+                    currentState = PLAYING;
+                }
+                break;
+
+            case PLAYING:
+                phrase = melody_idx / 7; // every 7 phrase
+                // Phrase colors: Green -> Blue -> Cyan
+                Set_LED((phrase == 0) ? 0x08 : (phrase == 1) ? 0x04 : 0x0C); 
+
+                if (melody_idx < total_notes) {
+                    note(twinklestar[melody_idx].pitch, twinklestar[melody_idx].duration);
+                    
+                    // Only move to the next note if we didn't just pause mid-note
+                    if (currentState == PLAYING) {
+                        melody_idx++;
+                    }
+                } else {
+                    melody_idx = 0;
+                    currentState = IDLE;
+                }
+                break;
+
+            case PAUSED:
+                Set_LED(0x0E); // White when paused
+                if (button_pressed) {
+                    Wait_ms(200);
+                    currentState = PLAYING;
+                }
+                break;
+        }
+    }
+}
+
 
 void SysTick_Init(void) {
     NVIC_ST_CTRL_R = 0;           // Disable during setup
@@ -81,34 +163,24 @@ void SysTick_Handler(void) {
 
 void Wait_ms(uint32_t ms) {
     uint32_t start = ms_ticks;
-    while ((ms_ticks - start) < ms);
-}
-
-void note(int note_val, int duration) {
-    if (note_val == 0) {
-        fixedSTEP = 0;
-    } else {
-        float freq = 440.0 * pow(2.0, (note_val - 49.0) / 12.0);
+    while ((ms_ticks - start) < ms) {
+        if ((GPIO_PORTF_DATA_R & 0x10) == 0) {
+            uint32_t debounce_start = ms_ticks;
+            while((ms_ticks - debounce_start) < 200); 
+            
+            if (currentState == PLAYING) {
+                currentState = PAUSED;
+                fixedSTEP = 0; // stop sound
+            } else {
+                currentState = PLAYING;
+            }
+            
+            // Wait for release
+            while((GPIO_PORTF_DATA_R & 0x10) == 0);
+        }
         
-        float floatStep = (freq * (float)TABLE_SIZE) / 8000.0;
-        
-        fixedSTEP = (uint32_t)(floatStep * 65536.0);
-    }
-
-    Wait_ms(duration);
-    
-    uint32_t tempStep = fixedSTEP;
-    fixedSTEP = 0;
-    Wait_ms(50); 
-    fixedSTEP = tempStep;
-}
-
-void scale(void) {
-    int melody[] = {40, 42, 44, 45, 47, 49, 51, 52};
-
-    int i;
-    for (i = 0; i < 8; i++) {
-        note(melody[i], 400);
+        // If the button changed the state to PAUSED, we exit the delay early
+        if (currentState != PLAYING) return;
     }
 }
 
@@ -132,45 +204,33 @@ void PWM_Init(void) {
     PWM0_ENABLE_R |= 0x01; // Enable PWM output on PB6
 }
 
-#define C 40
-#define D 42
-#define E 44
-#define F 45
-#define G 47
-#define A 49
-#define b 51
+void PortF_Init(void) {
+    SYSCTL_RCGCGPIO_R |= 0x20; // Enable Port F
+    GPIO_PORTF_DIR_R |= 0x0E;  // PF1,2,3 as Output
+    GPIO_PORTF_DIR_R &= ~0x10; // PF4 as Input
+    GPIO_PORTF_PUR_R |= 0x10;  // Pull-up on PF4
+    GPIO_PORTF_DEN_R |= 0x1E;  // Enable pins
+}
 
-#define q 400
-#define h 800
+void Set_LED(uint8_t color) {
+    GPIO_PORTF_DATA_R = (GPIO_PORTF_DATA_R & ~0x0E) | (color & 0x0E);
+}
 
-int melody[] =       {C, C, G, G, A, A, G, F, F, E, E, D, D, C,
-                      G, G, F, F, E, E, D, G, G, F, F, E, E, D,
-                      C, C, G, G, A, A, G, F, F, E, E, D, D, C};
-int durationlist[] = {q, q, q, q, q, q, h, q, q, q, q, q, q, h};
-
-int main(void) {
-    *((volatile uint32_t *)0xE000ED88) |= ((3UL << 20) | (3UL << 22)); // enables the FPU for floating points
-
-    SysTick_Init();
-    PWM_Init();
-    int i;
-    int d = 1000;
-    int n = sizeof(melody)/sizeof(melody[0]);
-
-    // // Task 1: Play a Note
-    note(40, 400);
-    fixedSTEP = 0;
-    Wait_ms(3000);
-
-    // Task 2: Play Scale
-    scale();
-    fixedSTEP = 0;
-    Wait_ms(3000);
-    
-    // Task 3: Play a Melody
-    for(i = 0; i < n; i++) {
-        note(melody[i], durationlist[i%14]);
+void note(int note_val, int duration) {
+    if (note_val == 0) {
+        fixedSTEP = 0;
+    } else {
+        float freq = 440.0 * pow(2.0, (note_val - 49.0) / 12.0);
+        
+        float floatStep = (freq * (float)TABLE_SIZE) / 8000.0;
+        
+        fixedSTEP = (uint32_t)(floatStep * 65536.0);
     }
-    fixedSTEP = 0;
+
+    Wait_ms(duration);
     
+    uint32_t tempStep = fixedSTEP;
+    fixedSTEP = 0;
+    Wait_ms(50); 
+    fixedSTEP = tempStep;
 }
