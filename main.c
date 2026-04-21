@@ -75,9 +75,23 @@ typedef struct {
 } Note_t;
 
 Note_t twinklestar[] = {
-    {C, q}, {C, q}, {G, q}, {G, q}, {A, q}, {A, q}, {G, h}, // Phrase 1
-    {F, q}, {F, q}, {E, q}, {E, q}, {D, q}, {D, q}, {C, h}, // Phrase 2
-    {G, q}, {G, q}, {F, q}, {F, q}, {E, q}, {E, q}, {D, h}  // Phrase 3
+    // Phrase 1: Twin-kle, twin-kle, lit-tle star
+    {C, q}, {C, q}, {G, q}, {G, q}, {A, q}, {A, q}, {G, h}, 
+    
+    // Phrase 2: How I won-der what you are
+    {F, q}, {F, q}, {E, q}, {E, q}, {D, q}, {D, q}, {C, h}, 
+    
+    // Phrase 3: Up a-bove the world so high (The Bridge Part 1)
+    {G, q}, {G, q}, {F, q}, {F, q}, {E, q}, {E, q}, {D, h}, 
+    
+    // Phrase 4: Like a dia-mond in the sky (The Bridge Part 2)
+    {G, q}, {G, q}, {F, q}, {F, q}, {E, q}, {E, q}, {D, h}, 
+    
+    // Phrase 5: Twin-kle, twin-kle, lit-tle star (Reprise)
+    {C, q}, {C, q}, {G, q}, {G, q}, {A, q}, {A, q}, {G, h}, 
+    
+    // Phrase 6: How I won-der what you are (Reprise)
+    {F, q}, {F, q}, {E, q}, {E, q}, {D, q}, {D, q}, {C, h}  
 };
 
 typedef enum { IDLE, PLAYING, PAUSED } State_t;
@@ -110,7 +124,8 @@ int main(void) {
             case PLAYING:
                 phrase = melody_idx / 7; // every 7 phrase
                 // Phrase colors: Green -> Blue -> Cyan
-                Set_LED((phrase == 0) ? 0x08 : (phrase == 1) ? 0x04 : 0x0C); 
+                uint8_t colors[] = {0x08, 0x04, 0x02, 0x0C, 0x0A, 0x0E}; 
+                Set_LED(colors[phrase % 6]);
 
                 if (melody_idx < total_notes) {
                     note(twinklestar[melody_idx].pitch, twinklestar[melody_idx].duration);
