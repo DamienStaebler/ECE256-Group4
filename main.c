@@ -128,7 +128,7 @@ int main(void) {
     latch();
 
     UART0_SendString("\r\n=== Twinkle Star Player ===\r\n");
-    UART0_SendString("Press any key to start/pause/resume.\r\n\r\n");
+    UART0_SendString("Press '1' to start/pause/resume.\r\n\r\n");
 
     int melody_idx = 0;
     int total_notes = sizeof(twinklestar) / sizeof(Note_t);
@@ -261,7 +261,8 @@ void UART0_ISR(void) {
     UARTIntClear(UART0_BASE, status);
 
     while (UARTCharsAvail(UART0_BASE)) {
-        UARTCharGetNonBlocking(UART0_BASE); // consume byte; any key acts as button
+        char cmd = (char)UARTCharGetNonBlocking(UART0_BASE);
+        if (cmd != '1') continue; // only '1' acts as button
 
         // Mirrors original button behaviour:
         // IDLE -> PLAYING, PLAYING -> PAUSED, PAUSED -> PLAYING
