@@ -103,12 +103,23 @@ typedef struct {
 } Note_t;
 
 Note_t twinklestar[] = {
-    {C,q},{C,q},{G,q},{G,q},{A,q},{A,q},{G,h},
-    {F,q},{F,q},{E,q},{E,q},{D,q},{D,q},{C,h},
-    {G,q},{G,q},{F,q},{F,q},{E,q},{E,q},{D,h},
-    {G,q},{G,q},{F,q},{F,q},{E,q},{E,q},{D,h},
-    {C,q},{C,q},{G,q},{G,q},{A,q},{A,q},{G,h},
-    {F,q},{F,q},{E,q},{E,q},{D,q},{D,q},{C,h}
+    // Phrase 1: Twin-kle, twin-kle, lit-tle star
+    {C, q}, {C, q}, {G, q}, {G, q}, {A, q}, {A, q}, {G, h}, 
+    
+    // Phrase 2: How I won-der what you are
+    {F, q}, {F, q}, {E, q}, {E, q}, {D, q}, {D, q}, {C, h}, 
+    
+    // Phrase 3: Up a-bove the world so high (The Bridge Part 1)
+    {G, q}, {G, q}, {F, q}, {F, q}, {E, q}, {E, q}, {D, h}, 
+    
+    // Phrase 4: Like a dia-mond in the sky (The Bridge Part 2)
+    {G, q}, {G, q}, {F, q}, {F, q}, {E, q}, {E, q}, {D, h}, 
+    
+    // Phrase 5: Twin-kle, twin-kle, lit-tle star (Reprise)
+    {C, q}, {C, q}, {G, q}, {G, q}, {A, q}, {A, q}, {G, h}, 
+    
+    // Phrase 6: How I won-der what you are (Reprise)
+    {F, q}, {F, q}, {E, q}, {E, q}, {D, q}, {D, q}, {C, h}
 };
 
 typedef enum { IDLE, PLAYING, PAUSED } State_t;
@@ -127,8 +138,7 @@ int main(void) {
     shiftOut(0x00);
     latch();
 
-    UART0_SendString("\r\n=== Twinkle Star Player ===\r\n");
-    UART0_SendString("Press '1' to start/pause/resume.\r\n\r\n");
+    UART0_SendString("\r\nPAUSED\r\n");
 
     int melody_idx = 0;
     int total_notes = sizeof(twinklestar) / sizeof(Note_t);
@@ -262,9 +272,8 @@ void UART0_ISR(void) {
 
     while (UARTCharsAvail(UART0_BASE)) {
         char cmd = (char)UARTCharGetNonBlocking(UART0_BASE);
-        if (cmd != '1') continue; // only '1' acts as button
+        if (cmd != '1') continue; // Char '1' acts as button
 
-        // Mirrors original button behaviour:
         // IDLE -> PLAYING, PLAYING -> PAUSED, PAUSED -> PLAYING
         switch (currentState) {
             case IDLE:
