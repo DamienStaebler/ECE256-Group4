@@ -117,9 +117,6 @@ volatile State_t currentState = IDLE;
 int main(void) {
     *((volatile uint32_t *)0xE000ED88) |= ((3UL << 20) | (3UL << 22));
 
-    SysCtlClockSet(SYSCTL_SYSDIV_1 | SYSCTL_USE_OSC |
-               SYSCTL_OSC_MAIN | SYSCTL_XTAL_16MHZ);
-
     SysTick_Init();
     PWM_Init();
     PortF_Init();
@@ -131,9 +128,7 @@ int main(void) {
     latch();
 
     UART0_SendString("\r\n=== Twinkle Star Player ===\r\n");
-    UART0_SendString("  1 -> Idle\r\n");
-    UART0_SendString("  2 -> Play\r\n");
-    UART0_SendString("  3 -> Pause\r\n\r\n");
+    UART0_SendString("Press any key to start/pause/resume.\r\n\r\n");
 
     int melody_idx = 0;
     int total_notes = sizeof(twinklestar) / sizeof(Note_t);
@@ -266,24 +261,23 @@ void UART0_ISR(void) {
     UARTIntClear(UART0_BASE, status);
 
     while (UARTCharsAvail(UART0_BASE)) {
-        char cmd = (char)UARTCharGetNonBlocking(UART0_BASE);
-        switch (cmd) {
-            case '1':
-                currentState = IDLE;
-                fixedSTEP = 0;
-                UART0_SendString("\r\nIDLE\r\n");
-                break;
-            case '2':
+        UARTCharGetNonBlocking(UART0_BASE); // consume byte; any key acts as button
+
+        // Mirrors original button behaviour:
+        // IDLE -> PLAYING, PLAYING -> PAUSED, PAUSED -> PLAYING
+        switch (currentState) {
+            case IDLE:
                 currentState = PLAYING;
                 UART0_SendString("\r\nPLAYING\r\n");
                 break;
-            case '3':
+            case PLAYING:
                 currentState = PAUSED;
                 fixedSTEP = 0;
                 UART0_SendString("\r\nPAUSED\r\n");
                 break;
-            default:
-                UART0_SendString("\r\nUnknown. Use 1, 2, or 3.\r\n");
+            case PAUSED:
+                currentState = PLAYING;
+                UART0_SendString("\r\nPLAYING\r\n");
                 break;
         }
     }
