@@ -66,16 +66,16 @@ void Wait_ms(uint32_t ms);
 // Init
 void PWM_Init(void);
 void PortF_Init(void);
-void ShiftReg_Init(void);   // Added
-void UART0_Init(void);      // Added
+void ShiftReg_Init(void);  
+void UART0_Init(void);      
 
 // UART
-void UART0_ISR(void);                   // Added
-void UART0_SendString(const char *str); // Added
+void UART0_ISR(void);                 
+void UART0_SendString(const char *str); 
 
 // Shift register
-void shiftOut(uint8_t data); // Added
-void latch(void);            // Added
+void shiftOut(uint8_t data); 
+void latch(void);           
 
 void Set_LED(uint8_t color);
 void note(int note_val, int duration);
@@ -131,8 +131,8 @@ int main(void) {
     SysTick_Init();
     PWM_Init();
     PortF_Init();
-    ShiftReg_Init();  // Added — PB0/1/2 outputs (PB6 already set by PWM_Init)
-    UART0_Init();     // Added
+    ShiftReg_Init();  //PB0/1/2 outputs (PB6 already set by PWM_Init)
+    UART0_Init();     
 
     // Clear shift register on startup
     shiftOut(0x00);
@@ -185,6 +185,7 @@ void SysTick_Init(void) {
     NVIC_ST_CTRL_R = 0x07;
 }
 
+// Updated SysTick_Handler to generate sine table via PWM and tracks time
 void SysTick_Handler(void) {
     uint32_t index = (fixedTableIndex >> 16);
     PWM0_0_CMPA_R = PWM0_0_LOAD_R - (PWM0_0_LOAD_R * sineTable[index] / MAX);
@@ -200,7 +201,7 @@ void SysTick_Handler(void) {
     }
 }
 
-// Wait_ms — button polling removed; exits early if state leaves PLAYING
+//Button polling removed; exits early if state leaves PLAYING
 void Wait_ms(uint32_t ms) {
     uint32_t start = ms_ticks;
     while ((ms_ticks - start) < ms) {
@@ -208,6 +209,7 @@ void Wait_ms(uint32_t ms) {
     }
 }
 
+//Sets up PWM0 on PB6 with 8-bit resolution and 50% duty cycle
 void PWM_Init(void) {
     SYSCTL_RCGCPWM_R |= 0x01;
     SYSCTL_RCGCGPIO_R |= 0x02;
@@ -245,6 +247,7 @@ void ShiftReg_Init(void) {
     GPIOPinWrite(SHIFT_PORT, DATA_PIN | CLOCK_PIN | LATCH_PIN, 0);
 }
 
+// Setting up UART0 on PA0/1 with 115200 baud, RX interrupt enabled
 void UART0_Init(void) {
     SysCtlPeripheralEnable(SYSCTL_PERIPH_GPIOA);
     SysCtlPeripheralEnable(SYSCTL_PERIPH_UART0);
@@ -266,6 +269,7 @@ void UART0_Init(void) {
     UARTEnable(UART0_BASE);
 }
 
+// Toggles between IDLE, PLAYING, and PAUSED on receiving '1'
 void UART0_ISR(void) {
     uint32_t status = UARTIntStatus(UART0_BASE, true);
     UARTIntClear(UART0_BASE, status);
@@ -293,10 +297,12 @@ void UART0_ISR(void) {
     }
 }
 
+//Sends a string one character at a time to UART0 
 void UART0_SendString(const char *str) {
     while (*str) UARTCharPut(UART0_BASE, *str++);
 }
 
+//Setting the RGB LED color by writing to Port F data register 
 void Set_LED(uint8_t color) {
     GPIO_PORTF_DATA_R = (GPIO_PORTF_DATA_R & ~0x0E) | (color & 0x0E);
 }
@@ -314,6 +320,7 @@ void note(int note_val, int duration) {
     Wait_ms(50);
 }
 
+//sends a byte to the shift register, MSB first
 void shiftOut(uint8_t data) {
     GPIOPinWrite(SHIFT_PORT, CLOCK_PIN, 0);
     int i = 7;
@@ -328,6 +335,7 @@ void shiftOut(uint8_t data) {
     GPIOPinWrite(SHIFT_PORT, CLOCK_PIN | DATA_PIN, 0);
 }
 
+//Toggles the latch pin to update the shift register outputs
 void latch(void) {
     GPIOPinWrite(SHIFT_PORT, LATCH_PIN, 0);
     GPIOPinWrite(SHIFT_PORT, LATCH_PIN, LATCH_PIN);
