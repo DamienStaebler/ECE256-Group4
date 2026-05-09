@@ -100,7 +100,7 @@ void shiftOut(uint8_t data); // Added
 void latch(void);            // Added
 
 void Set_LED(uint8_t color);
-void note(int note_val, int duration);
+void note(int note_val, int duration, int bitString);
 
 volatile float tableIndex = 0;
 volatile float STEP = 0;
@@ -122,26 +122,35 @@ typedef enum {
 typedef struct {
     Pitch_t pitch;
     uint16_t duration;
+    int bitstring;
 } Note_t;
 
 Note_t twinklestar[] = {
+
+//A - 0b00011100
+//C - 0b00101010
+//D - 0b00110010
+//E - 0b00100110
+//F - 0b00100010
+//G - 0b00010100
+
     // Phrase 1: Twin-kle, twin-kle, lit-tle star
-    {C, q}, {C, q}, {G, q}, {G, q}, {A, q}, {A, q}, {G, h}, 
+    {C, q, 0b00101010}, {C, q, 0b00101010}, {G, q, 0b00010100}, {G, q, 0b00010100}, {A, q, 0b00011100}, {A, q, 0b00011100}, {G, h, 0b00010100}, 
     
     // Phrase 2: How I won-der what you are
-    {F, q}, {F, q}, {E, q}, {E, q}, {D, q}, {D, q}, {C, h}, 
+    {F, q, 0b00100010}, {F, q, 0b00100010}, {E, q, 0b00100110}, {E, q, 0b00100110}, {D, q, 0b00110010}, {D, q, 0b00110010}, {C, h, 0b00101010}, 
     
     // Phrase 3: Up a-bove the world so high (The Bridge Part 1)
-    {G, q}, {G, q}, {F, q}, {F, q}, {E, q}, {E, q}, {D, h}, 
+    {G, q, 0b00010100}, {G, q, 0b00010100}, {F, q, 0b00100010}, {F, q, 0b00100010}, {E, q, 0b00100110}, {E, q, 0b00100110}, {D, h, 0b00110010}, 
     
     // Phrase 4: Like a dia-mond in the sky (The Bridge Part 2)
-    {G, q}, {G, q}, {F, q}, {F, q}, {E, q}, {E, q}, {D, h}, 
+    {G, q, 0b00010100}, {G, q, 0b00010100}, {F, q, 0b00100010}, {F, q, 0b00100010}, {E, q, 0b00100110}, {E, q, 0b00100110}, {D, h, 0b00110010}, 
     
     // Phrase 5: Twin-kle, twin-kle, lit-tle star (Reprise)
-    {C, q}, {C, q}, {G, q}, {G, q}, {A, q}, {A, q}, {G, h}, 
+    {C, q, 0b00101010}, {C, q, 0b00101010}, {G, q, 0b00010100}, {G, q, 0b00010100}, {A, q, 0b00011100}, {A, q, 0b00011100}, {G, h, 0b00010100}, 
     
     // Phrase 6: How I won-der what you are (Reprise)
-    {F, q}, {F, q}, {E, q}, {E, q}, {D, q}, {D, q}, {C, h}
+    {F, q, 0b00100010}, {F, q, 0b00100010}, {E, q, 0b00100110}, {E, q, 0b00100110}, {D, q, 0b00110010}, {D, q, 0b00110010}, {C, h, 0b00101010}
 };
 
 typedef enum { IDLE, PLAYING, PAUSED } State_t;
@@ -171,7 +180,6 @@ int main(void) {
     int melody_idx = 0;
     int total_notes = sizeof(twinklestar) / sizeof(Note_t);
     int phrase;
-    int ledRegisterPattern = 0b00100110;
 
     while (1) {
         // FIX: drain pending TX message here instead of inside the ISR
@@ -191,11 +199,8 @@ int main(void) {
                 if (melody_idx < total_notes) {
                     uint8_t c = colors[(melody_idx / 7) % 6];
                     Set_LED(c);
-                    ledRegisterPattern ^= 0xFF;
-                    shiftOut(ledRegisterPattern);
-                    latch();
                     
-                    note(twinklestar[melody_idx].pitch, twinklestar[melody_idx].duration);
+                    note(twinklestar[melody_idx].pitch, twinklestar[melody_idx].duration, twinklestar[melody_idx].bitstring);
                     
                     if (currentState == PLAYING) {
                         melody_idx++;
@@ -208,7 +213,7 @@ int main(void) {
             case PAUSED:
                 Set_LED(0x0E); // White
                 // 0x3F = 0b0011 1111
-                shiftOut(0b00111111); latch(); // All shift register LEDs on when paused
+                shiftOut(0b00111110); latch(); // All shift register LEDs on when paused
                 break;
         }
     }
@@ -369,7 +374,7 @@ void Set_LED(uint8_t color) {
     GPIO_PORTF_DATA_R = (GPIO_PORTF_DATA_R & ~0x0E) | (color & 0x0E);
 }
 
-void note(int note_val, int duration) {
+void note(int note_val, int duration, int bitString) {
     if (note_val == 0) {
         fixedSTEP = 0;
     } else {
@@ -377,6 +382,8 @@ void note(int note_val, int duration) {
         float floatStep = (freq * (float)TABLE_SIZE) / 8000.0;
         fixedSTEP = (uint32_t)(floatStep * 65536.0);
     }
+    shiftOut(bitString);
+    latch();
     Wait_ms(duration);
     fixedSTEP = 0;
     Wait_ms(50);
