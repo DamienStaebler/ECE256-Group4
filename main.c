@@ -124,6 +124,7 @@ Note_t twinklestar[] = {
 
 typedef enum { IDLE, PLAYING, PAUSED } State_t;
 volatile State_t currentState = IDLE;
+const uint8_t colors[] = {0x08, 0x04, 0x02, 0x0C, 0x0A, 0x0E};
 
 int main(void) {
     *((volatile uint32_t *)0xE000ED88) |= ((3UL << 20) | (3UL << 22));
@@ -143,6 +144,7 @@ int main(void) {
     int melody_idx = 0;
     int total_notes = sizeof(twinklestar) / sizeof(Note_t);
     int phrase;
+    int ledRegisterPattern = 0b00100110;
 
     while (1) {
         // Button removed — state is now set by UART ISR
@@ -150,18 +152,22 @@ int main(void) {
         switch (currentState) {
             case IDLE:
                 Set_LED(0x02); // Red
-                shiftOut(0x00); latch(); // All shift register LEDs off
+                shiftOut(0b00100110); latch(); // All shift register LEDs off
                 break;
 
             case PLAYING:
-                phrase = melody_idx / 7;
-                uint8_t colors[] = {0x08, 0x04, 0x02, 0x0C, 0x0A, 0x0E};
-                uint8_t c = colors[phrase % 6];
-                Set_LED(c);
-                shiftOut(c); latch(); // Mirror phrase color to shift register
+                // Only update the shift register once or when the phrase changes
+                // to avoid flickering and CPU overhead
 
                 if (melody_idx < total_notes) {
+                    uint8_t c = colors[(melody_idx / 7) % 6];
+                    Set_LED(c);
+                    ledRegisterPattern ^= 0xFF;
+                    shiftOut(ledRegisterPattern);
+                    latch();
+                    
                     note(twinklestar[melody_idx].pitch, twinklestar[melody_idx].duration);
+                    
                     if (currentState == PLAYING) {
                         melody_idx++;
                     }
@@ -172,7 +178,8 @@ int main(void) {
 
             case PAUSED:
                 Set_LED(0x0E); // White
-                shiftOut(0x3F); latch(); // All shift register LEDs on when paused
+                // 0x3F = 0b0011 1111
+                shiftOut(0b00111111); latch(); // All shift register LEDs on when paused
                 break;
         }
     }
@@ -187,13 +194,18 @@ void SysTick_Init(void) {
 
 // Updated SysTick_Handler to generate sine table via PWM and tracks time
 void SysTick_Handler(void) {
+    // 1. Wrap the index FIRST
+    if (fixedTableIndex >= (TABLE_SIZE << 16)) {
+        fixedTableIndex -= (TABLE_SIZE << 16);
+    }
+    
     uint32_t index = (fixedTableIndex >> 16);
-    PWM0_0_CMPA_R = PWM0_0_LOAD_R - (PWM0_0_LOAD_R * sineTable[index] / MAX);
+    // Use a safety mask just in case
+    PWM0_0_CMPA_R = PWM0_0_LOAD_R - (PWM0_0_LOAD_R * sineTable[index & 0x1F] / MAX);
 
     fixedTableIndex += fixedSTEP;
-    if (fixedTableIndex >= (TABLE_SIZE << 16))
-        fixedTableIndex -= (TABLE_SIZE << 16);
 
+    // Timing logic
     static uint8_t prescaler = 0;
     if (++prescaler >= 8) {
         ms_ticks++;
