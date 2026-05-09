@@ -11,12 +11,23 @@
 #include "driverlib/pin_map.h"
 #include "driverlib/interrupt.h"
 #include "driverlib/sysctl.h"
+#include "driverlib/udma.h" 
 
 #define SYSCLK 16000000 // 16 MHz default clock
 
 // System control registers
 #define SYSCTL_RCGCGPIO_R (*((volatile uint32_t *)0x400FE608))
 #define SYSCTL_RCGCPWM_R  (*((volatile uint32_t *)0x400FE640))
+
+// DMA & UART DMA Registers
+#define SYSCTL_RCGCDMA_R  (*((volatile uint32_t *)0x400FE60C))
+#define UDMA_CFG_R        (*((volatile uint32_t *)0x400FF004))
+#define UDMA_CTLBASE_R    (*((volatile uint32_t *)0x400FF008))
+#define UDMA_CHMAP1_R     (*((volatile uint32_t *)0x400FF514))
+#define UDMA_ENASET_R     (*((volatile uint32_t *)0x400FF028))
+#define UART0_DMACTL_R    (*((volatile uint32_t *)0x4000C048))
+#define UART0_DR_R        (*((volatile uint32_t *)0x4000C000))
+#define UART0_IM_R        (*((volatile uint32_t *)0x4000C038))
 
 // GPIO Port B registers (base: 0x40005000)
 #define GPIO_PORTB_AFSEL_R (*((volatile uint32_t *)0x40005420))
@@ -58,6 +69,16 @@
 #define CLOCK_PIN     GPIO_PIN_1   // SH_CP
 #define LATCH_PIN     GPIO_PIN_2   // ST_CP
 
+// ── μDMA: UART0 RX → SRAM, zero CPU involvement per byte
+// μDMA channel control table (must be 1024-byte aligned!)
+// FIX: replaced TI-only #pragma DATA_ALIGN with GCC-compatible attribute
+uint8_t dmaCtrlTable[1024] __attribute__((aligned(1024)));
+uint8_t rxBuf[256];
+volatile bool dmaComplete = false;
+
+// FIX: flag so ISR avoids blocking TX; main() drains it
+volatile const char *txPending = 0;
+
 // Timers
 void SysTick_Init(void);
 void SysTick_Handler(void);
@@ -66,16 +87,17 @@ void Wait_ms(uint32_t ms);
 // Init
 void PWM_Init(void);
 void PortF_Init(void);
-void ShiftReg_Init(void);  
-void UART0_Init(void);      
+void ShiftReg_Init(void);   // Added
+void UART0_Init(void);      // Added
+void DMA_Init(void);
 
 // UART
-void UART0_ISR(void);                 
-void UART0_SendString(const char *str); 
+void UART0_ISR(void);                   // Added
+void UART0_SendString(const char *str); // Added
 
 // Shift register
-void shiftOut(uint8_t data); 
-void latch(void);           
+void shiftOut(uint8_t data); // Added
+void latch(void);            // Added
 
 void Set_LED(uint8_t color);
 void note(int note_val, int duration);
@@ -129,11 +151,16 @@ const uint8_t colors[] = {0x08, 0x04, 0x02, 0x0C, 0x0A, 0x0E};
 int main(void) {
     *((volatile uint32_t *)0xE000ED88) |= ((3UL << 20) | (3UL << 22));
 
+    // FIX: initialize clock through driverlib so SysCtlClockGet() returns the correct value
+    SysCtlClockSet(SYSCTL_SYSDIV_1 | SYSCTL_USE_OSC | SYSCTL_OSC_MAIN | SYSCTL_XTAL_16MHZ);
+
     SysTick_Init();
     PWM_Init();
     PortF_Init();
-    ShiftReg_Init();  //PB0/1/2 outputs (PB6 already set by PWM_Init)
-    UART0_Init();     
+    ShiftReg_Init();  // Added — PB0/1/2 outputs (PB6 already set by PWM_Init)
+    // FIX: DMA_Init before UART0_Init so DMARX interrupt is armed only after DMA is ready
+    UART0_Init();
+    DMA_Init(); //testinggggggggg
 
     // Clear shift register on startup
     shiftOut(0x00);
@@ -147,12 +174,14 @@ int main(void) {
     int ledRegisterPattern = 0b00100110;
 
     while (1) {
-        // Button removed — state is now set by UART ISR
+        // FIX: drain pending TX message here instead of inside the ISR
+        if (txPending) { UART0_SendString((const char *)txPending); txPending = 0; }
 
+        // Button removed — state is now set by UART ISR
         switch (currentState) {
             case IDLE:
                 Set_LED(0x02); // Red
-                shiftOut(0b00100110); latch(); // All shift register LEDs off
+                shiftOut(0x00); latch(); // All shift register LEDs off
                 break;
 
             case PLAYING:
@@ -192,7 +221,6 @@ void SysTick_Init(void) {
     NVIC_ST_CTRL_R = 0x07;
 }
 
-// Updated SysTick_Handler to generate sine table via PWM and tracks time
 void SysTick_Handler(void) {
     // 1. Wrap the index FIRST
     if (fixedTableIndex >= (TABLE_SIZE << 16)) {
@@ -213,7 +241,7 @@ void SysTick_Handler(void) {
     }
 }
 
-//Button polling removed; exits early if state leaves PLAYING
+// Wait_ms — button polling removed; exits early if state leaves PLAYING
 void Wait_ms(uint32_t ms) {
     uint32_t start = ms_ticks;
     while ((ms_ticks - start) < ms) {
@@ -263,6 +291,8 @@ void ShiftReg_Init(void) {
 void UART0_Init(void) {
     SysCtlPeripheralEnable(SYSCTL_PERIPH_GPIOA);
     SysCtlPeripheralEnable(SYSCTL_PERIPH_UART0);
+
+    while (!SysCtlPeripheralReady(SYSCTL_PERIPH_GPIOA)) {} //testingggg
     while (!SysCtlPeripheralReady(SYSCTL_PERIPH_UART0)) {}
 
     GPIOPinConfigure(GPIO_PA0_U0RX);
@@ -274,47 +304,67 @@ void UART0_Init(void) {
                          UART_CONFIG_STOP_ONE |
                          UART_CONFIG_PAR_NONE));
 
-    UARTIntEnable(UART0_BASE, UART_INT_RX | UART_INT_RT);
-    UARTIntRegister(UART0_BASE, UART0_ISR);
+    // FIX: DMARX interrupt enabled at end of DMA_Init after DMA is configured;
+    // RT kept here only to drain stray bytes that DMA misses
+    UARTIntEnable(UART0_BASE, UART_INT_RT);
+    //testingggggggg
     IntEnable(INT_UART0);
     IntMasterEnable();
     UARTEnable(UART0_BASE);
 }
 
-// Toggles between IDLE, PLAYING, and PAUSED on receiving '1'
+void HandleCommand(char cmd) {
+    if (cmd != '1') return;
+
+    switch (currentState) {
+        case IDLE:
+            currentState = PLAYING;
+            txPending = "\r\nPLAYING\r\n";
+            break;
+
+        case PLAYING:
+            currentState = PAUSED;
+            fixedSTEP = 0;
+            txPending = "\r\nPAUSED\r\n";
+            break;
+
+        case PAUSED:
+            currentState = PLAYING;
+            txPending = "\r\nPLAYING\r\n";
+            break;
+    }
+}
+
 void UART0_ISR(void) {
     uint32_t status = UARTIntStatus(UART0_BASE, true);
     UARTIntClear(UART0_BASE, status);
 
-    while (UARTCharsAvail(UART0_BASE)) {
-        char cmd = (char)UARTCharGetNonBlocking(UART0_BASE);
-        if (cmd != '1') continue; // Char '1' acts as button
+    if (status & UART_INT_DMARX) {
+        if (!uDMAChannelIsEnabled(UDMA_CH8_UART0RX)) {
+            HandleCommand(rxBuf[0]);
+            rxBuf[0] = 0;
 
-        // IDLE -> PLAYING, PLAYING -> PAUSED, PAUSED -> PLAYING
-        switch (currentState) {
-            case IDLE:
-                currentState = PLAYING;
-                UART0_SendString("\r\nPLAYING\r\n");
-                break;
-            case PLAYING:
-                currentState = PAUSED;
-                fixedSTEP = 0;
-                UART0_SendString("\r\nPAUSED\r\n");
-                break;
-            case PAUSED:
-                currentState = PLAYING;
-                UART0_SendString("\r\nPLAYING\r\n");
-                break;
+            uDMAChannelTransferSet(UDMA_CH8_UART0RX | UDMA_PRI_SELECT,
+                                   UDMA_MODE_BASIC,
+                                   (void *)&UART0_DR_R,
+                                   rxBuf,
+                                   1);
+            uDMAChannelEnable(UDMA_CH8_UART0RX);
+        }
+    }
+
+    if (status & UART_INT_RT) {
+        while (UARTCharsAvail(UART0_BASE)) {
+            HandleCommand((char)UARTCharGetNonBlocking(UART0_BASE));
         }
     }
 }
 
-//Sends a string one character at a time to UART0 
+
 void UART0_SendString(const char *str) {
     while (*str) UARTCharPut(UART0_BASE, *str++);
 }
 
-//Setting the RGB LED color by writing to Port F data register 
 void Set_LED(uint8_t color) {
     GPIO_PORTF_DATA_R = (GPIO_PORTF_DATA_R & ~0x0E) | (color & 0x0E);
 }
@@ -332,7 +382,6 @@ void note(int note_val, int duration) {
     Wait_ms(50);
 }
 
-//sends a byte to the shift register, MSB first
 void shiftOut(uint8_t data) {
     GPIOPinWrite(SHIFT_PORT, CLOCK_PIN, 0);
     int i = 7;
@@ -347,9 +396,35 @@ void shiftOut(uint8_t data) {
     GPIOPinWrite(SHIFT_PORT, CLOCK_PIN | DATA_PIN, 0);
 }
 
-//Toggles the latch pin to update the shift register outputs
 void latch(void) {
     GPIOPinWrite(SHIFT_PORT, LATCH_PIN, 0);
     GPIOPinWrite(SHIFT_PORT, LATCH_PIN, LATCH_PIN);
     GPIOPinWrite(SHIFT_PORT, LATCH_PIN, 0);
+}
+
+void DMA_Init(void) {
+    SysCtlPeripheralEnable(SYSCTL_PERIPH_UDMA);
+    while(!SysCtlPeripheralReady(SYSCTL_PERIPH_UDMA));
+    
+    uDMAEnable();
+    uDMAControlBaseSet(dmaCtrlTable);
+
+    uDMAChannelAttributeDisable(UDMA_CH8_UART0RX, UDMA_ATTR_ALL);
+
+    // Source is UART Data Reg, Destination is rxBuf, no source inc, destination inc by 8-bits
+    uDMAChannelControlSet(UDMA_CH8_UART0RX | UDMA_PRI_SELECT,
+                          UDMA_SIZE_8 | UDMA_SRC_INC_NONE | UDMA_DST_INC_8 | UDMA_ARB_1);
+
+    // Set transfer for 1 byte only so it responds to every keypress
+    uDMAChannelTransferSet(UDMA_CH8_UART0RX | UDMA_PRI_SELECT,
+                            UDMA_MODE_BASIC,
+                            (void*)&UART0_DR_R,
+                            rxBuf,
+                            1);
+
+    uDMAChannelEnable(UDMA_CH8_UART0RX);
+    UARTDMAEnable(UART0_BASE, UART_DMA_RX);
+
+    // FIX: arm DMARX interrupt only after DMA is fully configured
+    UARTIntEnable(UART0_BASE, UART_INT_DMARX);
 }
