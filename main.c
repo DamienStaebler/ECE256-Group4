@@ -189,7 +189,7 @@ int main(void) {
         switch (currentState) {
             case IDLE:
                 Set_LED(0x02); // Red
-                shiftOut(0x00); latch(); // All shift register LEDs off
+                shiftOut(0b00111110); latch(); // All shift register LEDs on
                 break;
 
             case PLAYING:
@@ -213,7 +213,7 @@ int main(void) {
             case PAUSED:
                 Set_LED(0x0E); // White
                 // 0x3F = 0b0011 1111
-                shiftOut(0b00111110); latch(); // All shift register LEDs on when paused
+                shiftOut(0x00); latch(); // All shift register LEDs off when paused
                 break;
         }
     }
