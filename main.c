@@ -78,7 +78,7 @@ void shiftOut(uint8_t data);
 void latch(void);           
 
 void Set_LED(uint8_t color);
-void note(int note_val, int duration);
+void note(int note_val, int duration, int bitString);
 
 volatile float tableIndex = 0;
 volatile float STEP = 0;
@@ -103,23 +103,31 @@ typedef struct {
 } Note_t;
 
 Note_t twinklestar[] = {
+
+//A - 0b0001110
+//C - 0b0010101
+//D - 0b0011001
+//E - 0b0010011
+//F - 0b0010001
+//G - 0b0001010
+
     // Phrase 1: Twin-kle, twin-kle, lit-tle star
-    {C, q}, {C, q}, {G, q}, {G, q}, {A, q}, {A, q}, {G, h}, 
+    {C, q, 0b0010101}, {C, q, 0b0010101}, {G, q, 0b0001010}, {G, q, 0b0001010}, {A, q, 0b0001110}, {A, q, 0b0001110}, {G, h, 0b0001010}, 
     
     // Phrase 2: How I won-der what you are
-    {F, q}, {F, q}, {E, q}, {E, q}, {D, q}, {D, q}, {C, h}, 
+    {F, q, 0b0010001}, {F, q, 0b0010001}, {E, q, 0b0010011}, {E, q, 0b0010011}, {D, q, 0b0011001}, {D, q, 0b0011001}, {C, h, 0b0010101}, 
     
     // Phrase 3: Up a-bove the world so high (The Bridge Part 1)
-    {G, q}, {G, q}, {F, q}, {F, q}, {E, q}, {E, q}, {D, h}, 
+    {G, q, 0b0001010}, {G, q, 0b0001010}, {F, q, 0b0010001}, {F, q, 0b0010001}, {E, q, 0b0010011}, {E, q, 0b0010011}, {D, h, 0b0011001}, 
     
     // Phrase 4: Like a dia-mond in the sky (The Bridge Part 2)
-    {G, q}, {G, q}, {F, q}, {F, q}, {E, q}, {E, q}, {D, h}, 
+    {G, q, 0b0001010}, {G, q, 0b0001010}, {F, q, 0b0010001}, {F, q, 0b0010001}, {E, q, 0b0010011}, {E, q, 0b0010011}, {D, h, 0b0011001}, 
     
     // Phrase 5: Twin-kle, twin-kle, lit-tle star (Reprise)
-    {C, q}, {C, q}, {G, q}, {G, q}, {A, q}, {A, q}, {G, h}, 
+    {C, q, 0b0010101}, {C, q, 0b0010101}, {G, q, 0b0001010}, {G, q, 0b0001010}, {A, q, 0b0001110}, {A, q, 0b0001110}, {G, h, 0b0001010}, 
     
     // Phrase 6: How I won-der what you are (Reprise)
-    {F, q}, {F, q}, {E, q}, {E, q}, {D, q}, {D, q}, {C, h}
+    {F, q, 0b0010001}, {F, q, 0b0010001}, {E, q, 0b0010011}, {E, q, 0b0010011}, {D, q, 0b0011001}, {D, q, 0b0011001}, {C, h, 0b0010101}
 };
 
 typedef enum { IDLE, PLAYING, PAUSED } State_t;
@@ -152,7 +160,7 @@ int main(void) {
         switch (currentState) {
             case IDLE:
                 Set_LED(0x02); // Red
-                shiftOut(0b00100110); latch(); // All shift register LEDs off
+                shiftOut(0b0011111); latch(); // All shift register LEDs off
                 break;
 
             case PLAYING:
@@ -319,7 +327,7 @@ void Set_LED(uint8_t color) {
     GPIO_PORTF_DATA_R = (GPIO_PORTF_DATA_R & ~0x0E) | (color & 0x0E);
 }
 
-void note(int note_val, int duration) {
+void note(int note_val, int duration, int bitString) {
     if (note_val == 0) {
         fixedSTEP = 0;
     } else {
@@ -327,6 +335,7 @@ void note(int note_val, int duration) {
         float floatStep = (freq * (float)TABLE_SIZE) / 8000.0;
         fixedSTEP = (uint32_t)(floatStep * 65536.0);
     }
+    ledRegisterPattern = bitString;
     Wait_ms(duration);
     fixedSTEP = 0;
     Wait_ms(50);
