@@ -100,6 +100,7 @@ typedef enum {
 typedef struct {
     Pitch_t pitch;
     uint16_t duration;
+    int bitstring;
 } Note_t;
 
 Note_t twinklestar[] = {
@@ -152,7 +153,6 @@ int main(void) {
     int melody_idx = 0;
     int total_notes = sizeof(twinklestar) / sizeof(Note_t);
     int phrase;
-    int ledRegisterPattern = 0b00100110;
 
     while (1) {
         // Button removed — state is now set by UART ISR
@@ -170,11 +170,8 @@ int main(void) {
                 if (melody_idx < total_notes) {
                     uint8_t c = colors[(melody_idx / 7) % 6];
                     Set_LED(c);
-                    ledRegisterPattern ^= 0xFF;
-                    shiftOut(ledRegisterPattern);
-                    latch();
                     
-                    note(twinklestar[melody_idx].pitch, twinklestar[melody_idx].duration);
+                    note(twinklestar[melody_idx].pitch, twinklestar[melody_idx].duration, twinklestar[melody_idx].bitstring);
                     
                     if (currentState == PLAYING) {
                         melody_idx++;
@@ -335,7 +332,8 @@ void note(int note_val, int duration, int bitString) {
         float floatStep = (freq * (float)TABLE_SIZE) / 8000.0;
         fixedSTEP = (uint32_t)(floatStep * 65536.0);
     }
-    ledRegisterPattern = bitString;
+    shiftOut(bitString);
+    latch();
     Wait_ms(duration);
     fixedSTEP = 0;
     Wait_ms(50);
