@@ -184,7 +184,7 @@ int main(void) {
             case PAUSED:
                 Set_LED(0x0E); // White
                 // 0x3F = 0b0011 1111
-                shiftOut(0b00111111); latch(); // All shift register LEDs on when paused
+                shiftOut(0b00111110); latch(); // All shift register LEDs on when paused
                 break;
         }
     }
