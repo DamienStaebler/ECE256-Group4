@@ -105,30 +105,30 @@ typedef struct {
 
 Note_t twinklestar[] = {
 
-//A - 0b0001110
-//C - 0b0010101
-//D - 0b0011001
-//E - 0b0010011
-//F - 0b0010001
-//G - 0b0001010
+//A - 0b00011100
+//C - 0b00101010
+//D - 0b00110010
+//E - 0b00100110
+//F - 0b00100010
+//G - 0b00010100
 
     // Phrase 1: Twin-kle, twin-kle, lit-tle star
-    {C, q, 0b0010101}, {C, q, 0b0010101}, {G, q, 0b0001010}, {G, q, 0b0001010}, {A, q, 0b0001110}, {A, q, 0b0001110}, {G, h, 0b0001010}, 
+    {C, q, 0b00101010}, {C, q, 0b00101010}, {G, q, 0b00010100}, {G, q, 0b00010100}, {A, q, 0b00011100}, {A, q, 0b00011100}, {G, h, 0b00010100}, 
     
     // Phrase 2: How I won-der what you are
-    {F, q, 0b0010001}, {F, q, 0b0010001}, {E, q, 0b0010011}, {E, q, 0b0010011}, {D, q, 0b0011001}, {D, q, 0b0011001}, {C, h, 0b0010101}, 
+    {F, q, 0b00100010}, {F, q, 0b00100010}, {E, q, 0b00100110}, {E, q, 0b00100110}, {D, q, 0b00110010}, {D, q, 0b00110010}, {C, h, 0b00101010}, 
     
     // Phrase 3: Up a-bove the world so high (The Bridge Part 1)
-    {G, q, 0b0001010}, {G, q, 0b0001010}, {F, q, 0b0010001}, {F, q, 0b0010001}, {E, q, 0b0010011}, {E, q, 0b0010011}, {D, h, 0b0011001}, 
+    {G, q, 0b00010100}, {G, q, 0b00010100}, {F, q, 0b00100010}, {F, q, 0b00100010}, {E, q, 0b00100110}, {E, q, 0b00100110}, {D, h, 0b00110010}, 
     
     // Phrase 4: Like a dia-mond in the sky (The Bridge Part 2)
-    {G, q, 0b0001010}, {G, q, 0b0001010}, {F, q, 0b0010001}, {F, q, 0b0010001}, {E, q, 0b0010011}, {E, q, 0b0010011}, {D, h, 0b0011001}, 
+    {G, q, 0b00010100}, {G, q, 0b00010100}, {F, q, 0b00100010}, {F, q, 0b00100010}, {E, q, 0b00100110}, {E, q, 0b00100110}, {D, h, 0b00110010}, 
     
     // Phrase 5: Twin-kle, twin-kle, lit-tle star (Reprise)
-    {C, q, 0b0010101}, {C, q, 0b0010101}, {G, q, 0b0001010}, {G, q, 0b0001010}, {A, q, 0b0001110}, {A, q, 0b0001110}, {G, h, 0b0001010}, 
+    {C, q, 0b00101010}, {C, q, 0b00101010}, {G, q, 0b00010100}, {G, q, 0b00010100}, {A, q, 0b00011100}, {A, q, 0b00011100}, {G, h, 0b00010100}, 
     
     // Phrase 6: How I won-der what you are (Reprise)
-    {F, q, 0b0010001}, {F, q, 0b0010001}, {E, q, 0b0010011}, {E, q, 0b0010011}, {D, q, 0b0011001}, {D, q, 0b0011001}, {C, h, 0b0010101}
+    {F, q, 0b00100010}, {F, q, 0b00100010}, {E, q, 0b00100110}, {E, q, 0b00100110}, {D, q, 0b00110010}, {D, q, 0b00110010}, {C, h, 0b00101010}
 };
 
 typedef enum { IDLE, PLAYING, PAUSED } State_t;
@@ -160,7 +160,7 @@ int main(void) {
         switch (currentState) {
             case IDLE:
                 Set_LED(0x02); // Red
-                shiftOut(0b0011111); latch(); // All shift register LEDs off
+                shiftOut(0b00000000); latch(); // All shift register LEDs off
                 break;
 
             case PLAYING:
