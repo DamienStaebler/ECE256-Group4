@@ -167,9 +167,9 @@ int main(void) {
     PWM_Init();
     PortF_Init();
     ShiftReg_Init();  // Added — PB0/1/2 outputs (PB6 already set by PWM_Init)
-    // FIX: DMA_Init before UART0_Init so DMARX interrupt is armed only after DMA is ready
+    // FIX AGAIN: UART0_Init before DMA_Init
     UART0_Init();
-    DMA_Init(); //testinggggggggg
+    DMA_Init(); 
 
     // Clear shift register on startup
     shiftOut(0x00);
@@ -297,7 +297,7 @@ void UART0_Init(void) {
     SysCtlPeripheralEnable(SYSCTL_PERIPH_GPIOA);
     SysCtlPeripheralEnable(SYSCTL_PERIPH_UART0);
 
-    while (!SysCtlPeripheralReady(SYSCTL_PERIPH_GPIOA)) {} //testingggg
+    while (!SysCtlPeripheralReady(SYSCTL_PERIPH_GPIOA)) {} // Debugged for DMA Integration
     while (!SysCtlPeripheralReady(SYSCTL_PERIPH_UART0)) {}
 
     GPIOPinConfigure(GPIO_PA0_U0RX);
@@ -312,12 +312,13 @@ void UART0_Init(void) {
     // FIX: DMARX interrupt enabled at end of DMA_Init after DMA is configured;
     // RT kept here only to drain stray bytes that DMA misses
     UARTIntEnable(UART0_BASE, UART_INT_RT);
-    //testingggggggg
+    //Deleted, because adding UART0_ISR() in startup_ccs.c 
     IntEnable(INT_UART0);
     IntMasterEnable();
     UARTEnable(UART0_BASE);
 }
 
+//Rewrited the code for UART0_ISR - implemented HandleCommand seperately for easier debugging
 void HandleCommand(char cmd) {
     if (cmd != '1') return;
 
@@ -349,15 +350,13 @@ void UART0_ISR(void) {
             HandleCommand(rxBuf[0]);
             rxBuf[0] = 0;
 
-            uDMAChannelTransferSet(UDMA_CH8_UART0RX | UDMA_PRI_SELECT,
-                                   UDMA_MODE_BASIC,
-                                   (void *)&UART0_DR_R,
-                                   rxBuf,
-                                   1);
+            //Re-arm DMA for 1 single character to ensure immediate response
+            uDMAChannelTransferSet(UDMA_CH8_UART0RX | UDMA_PRI_SELECT, UDMA_MODE_BASIC,
+                                   (void *)&UART0_DR_R, rxBuf, 1);
             uDMAChannelEnable(UDMA_CH8_UART0RX);
         }
     }
-
+//Drain any bytes the DMA missed on receive timeout - Calls HandleCommand() on each drained byte
     if (status & UART_INT_RT) {
         while (UARTCharsAvail(UART0_BASE)) {
             HandleCommand((char)UARTCharGetNonBlocking(UART0_BASE));
