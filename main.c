@@ -61,6 +61,10 @@
 
 #define q 400
 #define h 800
+#define q  400   // Quarter note
+#define dq 600   // Dotted quarter
+#define h  800   // Half note
+#define h_d 1200 // Dotted half (full measure)
 
 // --- Shift register pin definitions (PB0/1/2) ---
 #define SHIFT_PERIPH  SYSCTL_PERIPH_GPIOB
@@ -153,9 +157,44 @@ Note_t twinklestar[] = {
     {F, q, 0b00100010}, {F, q, 0b00100010}, {E, q, 0b00100110}, {E, q, 0b00100110}, {D, q, 0b00110010}, {D, q, 0b00110010}, {C, h, 0b00101010}
 };
 
+Note_t jinglebells[] = {
+    {E, q, 0b00100110}, {E, q, 0b00100110}, {E, h, 0b00100110},
+    {E, q, 0b00100110}, {E, q, 0b00100110}, {E, h, 0b00100110},
+    {E, q, 0b00100110}, {G, q, 0b00010100}, {C, q, 0b00101010}, {D, q, 0b00110010}, {E, h, 0b00100110},
+    {F, q, 0b00100010}, {F, q, 0b00100010}, {F, q, 0b00100010}, {F, q, 0b00100010},
+    {F, q, 0b00100010}, {E, q, 0b00100110}, {E, q, 0b00100110}, {E, q, 0b00100110},
+    {G, q, 0b00010100}, {G, q, 0b00010100}, {F, q, 0b00100010}, {D, q, 0b00110010}, {C, h, 0b00101010}
+};
+
+Note_t silentnight[] = {
+    // Si-lent night, ho-ly night
+    {G, dq, 0b00010100}, {A, q, 0b00011100}, {G, h, 0b00010100},
+    {G, dq, 0b00010100}, {A, q, 0b00011100}, {G, h, 0b00010100},
+
+    // All is calm, all is bright
+    {D, h, 0b00110010}, {D, h, 0b00110010},
+    {B, h, 0b00101010}, {B, h, 0b00101010},
+
+    // Round yon vir-gin moth-er and child
+    {A, h, 0b00011100}, {A, h, 0b00011100},
+    {C, h, 0b00101010}, {C, h, 0b00101010},
+
+    // Ho-ly in-fant so ten-der and mild
+    {C, q, 0b00101010}, {G, q, 0b00010100}, {E, q, 0b00100110}, 
+    {G, dq, 0b00010100}, {F, q, 0b00100010}, {D, h, 0b00110010},
+
+    // Sleep in heav-en-ly peace
+    {C, h_d, 0b00101010}, {G, h_d, 0b00010100}, 
+    {E, h_d, 0b00100110}
+};
+
 typedef enum { IDLE, PLAYING, PAUSED } State_t;
 volatile State_t currentState = IDLE;
 const uint8_t colors[] = {0x08, 0x04, 0x02, 0x0C, 0x0A, 0x0E};
+
+volatile Note_t* currentMelody = twinklestar;
+volatile int currentMelodySize = sizeof(twinklestar) / sizeof(Note_t);
+volatile bool songChanged = false;
 
 int main(void) {
     *((volatile uint32_t *)0xE000ED88) |= ((3UL << 20) | (3UL << 22));
@@ -178,12 +217,16 @@ int main(void) {
     UART0_SendString("\r\nPAUSED\r\n");
 
     int melody_idx = 0;
-    int total_notes = sizeof(twinklestar) / sizeof(Note_t);
-    int phrase;
 
     while (1) {
         // FIX: drain pending TX message here instead of inside the ISR
         if (txPending) { UART0_SendString((const char *)txPending); txPending = 0; }
+
+        // if it has changed, gotta reset the counter
+        if (songChanged) {
+            melody_idx = 0;
+            songChanged = false;
+        }
 
         // Button removed — state is now set by UART ISR
         switch (currentState) {
@@ -196,13 +239,15 @@ int main(void) {
                 // Only update the shift register once or when the phrase changes
                 // to avoid flickering and CPU overhead
 
-                if (melody_idx < total_notes) {
+                if (melody_idx < currentMelodySize) {
                     uint8_t c = colors[(melody_idx / 7) % 6];
                     Set_LED(c);
                     
-                    note(twinklestar[melody_idx].pitch, twinklestar[melody_idx].duration, twinklestar[melody_idx].bitstring);
+                    note(currentMelody[melody_idx].pitch, 
+                         currentMelody[melody_idx].duration, 
+                         currentMelody[melody_idx].bitstring);
                     
-                    if (currentState == PLAYING) {
+                    if (currentState == PLAYING && !songChanged) {
                         melody_idx++;
                     }
                 } else {
@@ -320,25 +365,61 @@ void UART0_Init(void) {
 
 //Rewrited the code for UART0_ISR - implemented HandleCommand seperately for easier debugging
 void HandleCommand(char cmd) {
-    if (cmd != '1') return;
-
-    switch (currentState) {
-        case IDLE:
-            currentState = PLAYING;
-            txPending = "\r\nPLAYING\r\n";
+    switch (cmd) {
+        case 'p': // Play/Pause toggle
+            if (currentState == PLAYING) {
+                currentState = PAUSED;
+                fixedSTEP = 0;
+                txPending = "\r\nPAUSED\r\n";
+            } else {
+                currentState = PLAYING;
+                txPending = "\r\nPLAYING\r\n";
+            }
             break;
 
-        case PLAYING:
-            currentState = PAUSED;
-            fixedSTEP = 0;
-            txPending = "\r\nPAUSED\r\n";
+        case 't': // Twinkle Twinkle
+            currentMelody = twinklestar;
+            currentMelodySize = sizeof(twinklestar) / sizeof(Note_t);
+            songChanged = true; // Signal main to reset index
+            currentState = PLAYING;
+            txPending = "\r\nSONG: TWINKLE\r\n";
             break;
 
-        case PAUSED:
+        case 's':
+            currentMelody = silentnight; 
+            currentMelodySize = sizeof(silentnight) / sizeof(Note_t);
+            songChanged = true;
             currentState = PLAYING;
-            txPending = "\r\nPLAYING\r\n";
+            txPending = "\r\nSONG: SILENT NIGHT\r\n";
+            break;
+
+        case 'j': // Jingle Bells
+            currentMelody = jinglebells;
+            currentMelodySize = sizeof(jinglebells) / sizeof(Note_t);
+            songChanged = true;
+            currentState = PLAYING;
+            txPending = "\r\nSONG: JINGLE BELLS\r\n";
             break;
     }
+    // if (cmd != 'p') return;
+
+    // switch (currentState) {
+    //     case IDLE:
+    //         currentState = PLAYING;
+    //         txPending = "\r\nPLAYING\r\n";
+    //         break;
+
+    //     case PLAYING:
+    //         currentState = PAUSED;
+    //         fixedSTEP = 0;
+    //         txPending = "\r\nPAUSED\r\n";
+    //         break;
+
+    //     case PAUSED:
+    //         currentState = PLAYING;
+    //         txPending = "\r\nPLAYING\r\n";
+    //         break;
+    // }
 }
 
 void UART0_ISR(void) {
