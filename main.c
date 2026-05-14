@@ -58,7 +58,6 @@
 #define TABLE_SIZE 32
 #define MAX 15
 
-// FIX: no duplicate macro definitions — define each duration name exactly once
 #define q    400   // Quarter note
 #define dq   600   // Dotted quarter
 #define h    800   // Half note
@@ -101,8 +100,7 @@ void latch(void);
 
 void Set_LED(uint8_t color);
 
-// FIX: note() no longer takes bitString — shift register is driven from main()
-//      so the PAUSED/IDLE cases can cleanly override it without fighting note().
+// PAUSED/IDLE cases can cleanly override it without fighting note().
 void note(int note_val, int duration);
 
 volatile float tableIndex = 0;
@@ -259,9 +257,7 @@ int main(void) {
                     uint8_t c = colors[(melody_idx / 7) % 6];
                     Set_LED(c);
 
-                    // FIX: drive shift register HERE in main(), not inside note().
-                    // This keeps the PAUSED/IDLE cases in full control of the
-                    // shift register and avoids the stale-pattern problem.
+                    //Fixed the shiftout of the bitstring moving it from the note call
                     shiftOut(currentMelody[melody_idx].bitstring);
                     latch();
 
@@ -457,7 +453,7 @@ void note(int note_val, int duration) {
         fixedSTEP      = (uint32_t)(floatStep * 65536.0f);
     }
     Wait_ms(duration);
-    // FIX: always zero the step so audio stops even if Wait_ms exited early
+    // always zero the step so audio stops even if Wait_ms exited early
     fixedSTEP = 0;
     Wait_ms(50);
 }
